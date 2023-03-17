@@ -6,7 +6,6 @@
 
 void OSSM::setup()
 {
-    WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
     LogDebug("Software version");
     LogDebug(SW_VERSION);
     g_ui.Setup();
@@ -22,20 +21,12 @@ void OSSM::setup()
     fill_rainbow(ossmleds, NUM_LEDS, 34, 1);
     FastLED.show();
     writeEepromSettings();
-    WiFi.begin("IoT_PHB", "penthouseb"); // donthackmyguestnetworkplz
-    wifiAutoConnect();
-    updateFirmware();
 #endif
     readEepromSettings();
     initializeStepperParameters();
     initializeInputs();
     strcpy(Id, ossmId);
-    wifiAutoConnect();
     delay(500);
-    if (checkForUpdate() == true)
-    {
-        updatePrompt();
-    };
 }
 
 void OSSM::runPenetrate()
@@ -112,15 +103,15 @@ void OSSM::runStrokeEngine()
     Stroker.setDepth(0.01 * depthPercentage * abs(maxStrokeLengthMm), true);
     Stroker.setStroke(0.01 * strokePercentage * abs(maxStrokeLengthMm), true);
     Stroker.moveToMax(10 * 3);
-    Serial.println(Stroker.getState());
+    LogDebug(Stroker.getState());
     g_ui.UpdateMessage(Stroker.getPatternName(strokePattern));
 
     for (;;)
     {
-        Serial.println("looping");
+        LogDebug("looping");
         if (isChangeSignificant(lastSpeedPercentage, speedPercentage))
         {
-            Serial.printf("changing speed: %f\n", speedPercentage * 3);
+            LogDebugFormatted("changing speed: %f\n", speedPercentage * 3);
             if (speedPercentage == 0)
             {
                 Stroker.stopMotion();
@@ -137,7 +128,7 @@ void OSSM::runStrokeEngine()
         int buttonPressCount = encoderButtonPresses - lastEncoderButtonPresses;
         if (!modeChanged && buttonPressCount > 0 && (millis() - lastEncoderButtonPressMillis) > 200)
         {
-            Serial.printf("switching mode pre: %i %i\n", rightKnobMode, buttonPressCount);
+            LogDebugFormatted("switching mode pre: %i %i\n", rightKnobMode, buttonPressCount);
 
             if (buttonPressCount > 1)
             {
@@ -160,7 +151,7 @@ void OSSM::runStrokeEngine()
                 }
             }
 
-            Serial.printf("switching mode: %i\n", rightKnobMode);
+            LogDebugFormatted("switching mode: %i\n", rightKnobMode);
 
             modeChanged = true;
             lastEncoderButtonPresses = encoderButtonPresses;
@@ -169,7 +160,7 @@ void OSSM::runStrokeEngine()
         if (lastStrokePercentage != strokePercentage)
         {
             float newStroke = 0.01 * strokePercentage * abs(maxStrokeLengthMm);
-            Serial.printf("change stroke: %f %f\n", strokePercentage, newStroke);
+            LogDebugFormatted("change stroke: %f %f\n", strokePercentage, newStroke);
             Stroker.setStroke(newStroke, true);
             lastStrokePercentage = strokePercentage;
         }
@@ -177,7 +168,7 @@ void OSSM::runStrokeEngine()
         if (lastDepthPercentage != depthPercentage)
         {
             float newDepth = 0.01 * depthPercentage * abs(maxStrokeLengthMm);
-            Serial.printf("change depth: %f %f\n", depthPercentage, newDepth);
+            LogDebugFormatted("change depth: %f %f\n", depthPercentage, newDepth);
             Stroker.setDepth(newDepth, false);
             lastDepthPercentage = depthPercentage;
         }
@@ -185,7 +176,7 @@ void OSSM::runStrokeEngine()
         if (lastSensationPercentage != sensationPercentage)
         {
             float newSensation = calculateSensation(sensationPercentage);
-            Serial.printf("change sensation: %f, %f\n", sensationPercentage, newSensation);
+            LogDebugFormatted("change sensation: %f, %f\n", sensationPercentage, newSensation);
             Stroker.setSensation(newSensation, false);
             lastSensationPercentage = sensationPercentage;
         }
@@ -203,7 +194,7 @@ void OSSM::runStrokeEngine()
                 strokePattern = 0;
             }
 
-            Serial.println(Stroker.getPatternName(strokePattern));
+            LogDebug(Stroker.getPatternName(strokePattern));
 
             Stroker.setPattern(strokePattern, false); // Pattern, index must be < Stroker.getNumberOfPattern()
             g_ui.UpdateMessage(Stroker.getPatternName(strokePattern));
@@ -232,7 +223,7 @@ String getPatternJSON(StrokeEngine Stroker)
             JSON += "}]";
         }
     }
-    Serial.println(JSON);
+    LogDebug(JSON);
     return JSON;
 }
 
@@ -245,10 +236,10 @@ void OSSM::setRunMode()
     {
         encoderVal = abs(g_encoder.read());
         runModeVal = (encoderVal % (2 * runModeCount)) / 2; // scale by 2 because encoder counts by 2
-        Serial.print("encoder: ");
-        Serial.println(encoderVal);
-        Serial.printf("%d encoder count \n", encoderVal);
-        Serial.printf("%d runModeVal \n", runModeVal);
+        LogDebugFormatted("encoder: ");
+        LogDebug(encoderVal);
+        LogDebugFormatted("%d encoder count \n", encoderVal);
+        LogDebugFormatted("%d runModeVal \n", runModeVal);
         switch (runModeVal)
         {
             case simpleMode:
@@ -263,172 +254,6 @@ void OSSM::setRunMode()
         }
     }
     g_encoder.write(0); // reset encoder to zero
-}
-
-void OSSM::wifiAutoConnect()
-{
-    // This is here in case you want to change WiFi settings - pull IO High
-    if (digitalRead(WIFI_RESET_PIN) == HIGH)
-    {
-        // reset settings - for testing
-        wm.resetSettings();
-        LogDebug("settings reset");
-        delay(100);
-        wm.setConfigPortalTimeout(60);
-        if (!wm.autoConnect("OSSM Setup"))
-        {
-            LogDebug("failed to connect and hit timeout");
-        }
-    }
-
-    wm.setConfigPortalTimeout(1);
-    if (!wm.autoConnect("OSSM Setup"))
-    {
-        LogDebug("failed to connect and hit timeout");
-    }
-    LogDebug("exiting autoconnect");
-}
-
-void OSSM::wifiConnectOrHotspotNonBlocking()
-{
-    int wifiTimeoutSeconds = 15;
-    float threadStartTimeMillis = millis();
-    float threadRuntimeSeconds = 0;
-    // This should always be run in a thread!!!
-    wm.setConfigPortalTimeout(wifiTimeoutSeconds);
-    wm.setConfigPortalBlocking(false);
-    // here we try to connect to WiFi or launch settings hotspot for you to enter WiFi credentials
-    if (!wm.autoConnect("OSSM setup"))
-    {
-        // TODO: Set Status LED to indicate failure
-        LogDebug("No connection, launching config portal");
-    }
-    else
-    {
-        // TODO: Set Status LED to indicate everything is ok!
-        LogDebug("Connected!");
-    }
-    for (;;)
-    {
-        wm.process();
-        vTaskDelay(1);
-        // delete this task once connected!
-        threadRuntimeSeconds = (millis() - threadStartTimeMillis) / 1000;
-        if (WiFi.status() == WL_CONNECTED || (threadRuntimeSeconds > (wifiTimeoutSeconds + 10)))
-        {
-            WiFi.disconnect(true);
-            WiFi.mode(WIFI_OFF);
-            vTaskDelay(100);
-            vTaskDelete(NULL);
-        }
-    }
-}
-
-void OSSM::updatePrompt()
-{
-    Serial.println("about to start httpOtaUpdate");
-    if (WiFi.status() != WL_CONNECTED)
-    {
-        // return if no WiFi
-        return;
-    }
-    if (checkForUpdate() == false)
-    {
-        return;
-    }
-    //   Tell user we are updating!
-
-    g_ui.UpdateMessage("Press to update SW");
-
-    if (waitForAnyButtonPress(5000) == false)
-    {
-        // user did not accept update
-        return;
-    }
-
-    updateFirmware();
-}
-void OSSM::updateFirmware()
-{
-    FastLED.setBrightness(150);
-    fill_rainbow(ossmleds, NUM_LEDS, 192, 1);
-    FastLED.show();
-    g_ui.UpdateMessage("Updating - 1 minute...");
-
-    WiFiClient client;
-    t_httpUpdate_return ret = httpUpdate.update(client, "http://d2sy3zdr3r1gt5.cloudfront.net/ossmfirmware2.bin");
-    // Or:
-    // t_httpUpdate_return ret = httpUpdate.update(client, "server", 80, "file.bin");
-
-    switch (ret)
-    {
-        case HTTP_UPDATE_FAILED:
-            Serial.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", httpUpdate.getLastError(),
-                          httpUpdate.getLastErrorString().c_str());
-            break;
-
-        case HTTP_UPDATE_NO_UPDATES:
-            Serial.println("HTTP_UPDATE_NO_UPDATES");
-            break;
-
-        case HTTP_UPDATE_OK:
-            Serial.println("HTTP_UPDATE_OK");
-            break;
-    }
-}
-
-bool OSSM::checkForUpdate()
-{
-    String serverNameBubble = "http://d2g4f7zewm360.cloudfront.net/check-for-ossm-update"; // live url
-#ifdef VERSIONTEST
-    serverNameBubble = "http://d2oq8yqnezqh3r.cloudfront.net/check-for-ossm-update"; // version-test
-#endif
-    LogDebug("about to hit http for update");
-    HTTPClient http;
-    http.begin(serverNameBubble);
-    http.addHeader("Content-Type", "application/json");
-    StaticJsonDocument<200> doc;
-    // Add values in the document
-    doc["ossmSwVersion"] = SW_VERSION;
-
-    String requestBody;
-    serializeJson(doc, requestBody);
-    LogDebug("about to POST");
-    int httpResponseCode = http.POST(requestBody);
-    LogDebug("POSTed");
-    String payload = "{}";
-    // int httpResponseCode = http.POST("{\"trainerSwVersion\":\"96\"}");
-    payload = http.getString();
-    LogDebug("HTTP Response code: ");
-    LogDebug(httpResponseCode);
-    LogDebug(payload);
-    StaticJsonDocument<200> bubbleResponse;
-
-    deserializeJson(bubbleResponse, payload);
-
-    const char *status = bubbleResponse["status"]; // "success"
-    bool response_needUpdate = bubbleResponse["response"]["needUpdate"];
-    LogDebug(payload);
-    const char *updateNeeded = bubbleResponse["response"]["needUpdate"];
-
-    if (httpResponseCode <= 0)
-    {
-        LogDebug("Failed to reach update server");
-    }
-    http.end();
-    return response_needUpdate;
-}
-
-bool OSSM::checkConnection()
-{
-    if (WiFi.status() != WL_CONNECTED)
-    {
-        return false;
-    }
-    else
-    {
-        return true;
-    }
 }
 
 void OSSM::initializeStepperParameters()
@@ -493,9 +318,9 @@ float OSSM::sensorlessHoming()
     digitalWrite(MOTOR_ENABLE_PIN, LOW);
     delay(100);
 
-    Serial.print(getAnalogAveragePercent(36, 500) - currentSensorOffset);
-    Serial.print(",");
-    Serial.println(stepper.getCurrentPositionInMillimeters());
+    LogDebugFormatted(getAnalogAveragePercent(36, 500) - currentSensorOffset);
+    LogDebugFormatted(",");
+    LogDebug(stepper.getCurrentPositionInMillimeters());
 
     // find reverse limit
 
@@ -505,9 +330,9 @@ float OSSM::sensorlessHoming()
     while (current < currentLimit)
     {
         current = getAnalogAveragePercent(36, 25) - currentSensorOffset;
-        Serial.print(current);
-        Serial.print(",");
-        Serial.println(stepper.getCurrentPositionInMillimeters());
+        LogDebugFormatted(current);
+        LogDebugFormatted(",");
+        LogDebug(stepper.getCurrentPositionInMillimeters());
     }
     // stepper.emergencyStop();
 
@@ -539,9 +364,9 @@ float OSSM::sensorlessHoming()
         current = getAnalogAveragePercent(36, 25) - currentSensorOffset;
         if (stepper.getCurrentPositionInMillimeters() > 90)
         {
-            Serial.print(current);
-            Serial.print(",");
-            Serial.println(stepper.getCurrentPositionInMillimeters());
+            LogDebugFormatted(current);
+            LogDebugFormatted(",");
+            LogDebug(stepper.getCurrentPositionInMillimeters());
         }
     }
 
@@ -549,15 +374,15 @@ float OSSM::sensorlessHoming()
     stepper.moveRelativeInMillimeters(-strokeZeroOffsetmm);
     measuredStrokeMm = -stepper.getCurrentPositionInMillimeters();
     stepper.setCurrentPositionAsHomeAndStop();
-    Serial.print("Sensorless Homing complete!  ");
-    Serial.print(measuredStrokeMm);
-    Serial.println(" mm");
+    LogDebugFormatted("Sensorless Homing complete!  ");
+    LogDebugFormatted(measuredStrokeMm);
+    LogDebug(" mm");
     g_ui.UpdateMessage("Homing Complete");
     // digitalWrite(MOTOR_ENABLE_PIN, HIGH);
     // delay(500);
     // digitalWrite(MOTOR_ENABLE_PIN, LOW);
-    Serial.print("Stroke: ");
-    Serial.println(measuredStrokeMm);
+    LogDebugFormatted("Stroke: ");
+    LogDebug(measuredStrokeMm);
     return measuredStrokeMm;
 }
 void OSSM::sensorHoming()
@@ -607,7 +432,7 @@ void OSSM::writeEepromLifeStats()
 {
     // Be very careful with this so you don't break your configuration!
     LogDebug("writing eeprom life stats");
-    Serial.printf("\nwriting eeprom life stats...\n");
+    LogDebugFormatted("\nwriting eeprom life stats...\n");
     EEPROM.begin(EEPROM_SIZE);
     EEPROM.put(4, numberStrokes);
     EEPROM.put(12, travelledDistanceMeters);
@@ -630,11 +455,11 @@ void OSSM::updateLifeStats()
     days = hours / 24;
     if ((millis() - lastLifeUpdateMillis) > 5000)
     {
-        Serial.printf("\n%dd %dh %dm %ds \n", ((int(days))), (int(hours) % 24), (int(minutes) % 60),
+        LogDebugFormatted("\n%dd %dh %dm %ds \n", ((int(days))), (int(hours) % 24), (int(minutes) % 60),
                       (int(lifeSecondsPowered) % 60));
-        Serial.printf("%.0f strokes \n", numberStrokes);
-        Serial.printf("%.2f kilometers \n", travelledDistanceKilometers);
-        Serial.printf("%.2fA avg current \n", averageCurrent);
+        LogDebugFormatted("%.0f strokes \n", numberStrokes);
+        LogDebugFormatted("%.2f kilometers \n", travelledDistanceKilometers);
+        LogDebugFormatted("%.2fA avg current \n", averageCurrent);
         lastLifeUpdateMillis = millis();
     }
     if ((millis() - lastLifeWriteMillis) > 180000)

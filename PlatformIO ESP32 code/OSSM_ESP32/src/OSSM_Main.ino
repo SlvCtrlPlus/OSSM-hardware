@@ -1,9 +1,6 @@
 #include <Arduino.h>          // Basic Needs
-#include <ArduinoJson.h>      // Needed for the Bubble APP
 #include <ESP_FlexyStepper.h> // Current Motion Control
 #include <Encoder.h>          // Used for the Remote Encoder Input
-#include <HTTPClient.h>       // Needed for the Bubble APP
-#include <WiFiManager.h>      // Used to provide easy network connection  https://github.com/tzapu/WiFiManager
 #include <Wire.h>             // Used for i2c connections (Remote OLED Screen)
 
 #include "OSSM_Config.h" // START HERE FOR Configuration
@@ -11,6 +8,7 @@
 #include "OssmUi.h"      // Separate file that helps contain the OLED screen functions
 #include "Stroke_Engine_Helper.h"
 #include "Utilities.h" // Utility helper functions - wifi update and homing
+#include "SlvCtrlPlus.h"
 
 // Homing
 volatile bool g_has_not_homed = true;
@@ -45,7 +43,6 @@ IRAM_ATTR void encoderPushButton()
 // Create tasks for checking pot input or web server control, and task to handle
 // planning the motion profile (this task is high level only and does not pulse
 // the stepper!)
-TaskHandle_t wifiTask = nullptr;
 TaskHandle_t getInputTask = nullptr;
 TaskHandle_t motionTask = nullptr;
 TaskHandle_t estopTask = nullptr;
@@ -56,16 +53,14 @@ TaskHandle_t oledTask = nullptr;
 // void setLedRainbow(CRGB leds[]);
 void getUserInputTask(void *pvParameters);
 void motionCommandTask(void *pvParameters);
-void wifiConnectionTask(void *pvParameters);
 void estopResetTask(void *pvParameters);
-
-bool setInternetControl(bool wifiControlEnable);
-bool getInternetSettings();
 
 bool stopSwitchTriggered = 0;
 
 // create the OSSM hardware object
 OSSM ossm;
+
+SlvCtrlPlus slvCtrlPlus(&ossm);
 
 ///////////////////////////////////////////
 ////
@@ -76,21 +71,13 @@ OSSM ossm;
 void setup()
 {
     ossm.startLeds();
-    Serial.begin(115200);
+    Serial.begin(9600);
     LogDebug("\n Starting");
     pinMode(ENCODER_SWITCH, INPUT_PULLDOWN); // Rotary Encoder Pushbutton
     attachInterrupt(digitalPinToInterrupt(ENCODER_SWITCH), encoderPushButton, RISING);
 
     ossm.setup();
 
-    // start the WiFi connection task so we can be doing something while homing!
-    xTaskCreatePinnedToCore(wifiConnectionTask,   /* Task function. */
-                            "wifiConnectionTask", /* name of task. */
-                            10000,                /* Stack size of task */
-                            NULL,                 /* parameter of the task */
-                            1,                    /* priority of the task */
-                            &wifiTask,            /* Task handle to keep track of created task */
-                            0);                   /* pin task to core 0 */
     delay(100);
 
     ossm.findHome();
@@ -128,6 +115,8 @@ void setup()
 
     delay(100);
     ossm.g_ui.UpdateMessage("OSSM Ready to Play");
+
+    slvCtrlPlus.comm_setup();
 } // Void Setup()
 
 ///////////////////////////////////////////
@@ -160,19 +149,7 @@ void loop()
             break;
     }
     ossm.g_ui.UpdateScreen();
-
-    // debug
-    static bool is_connected = false;
-    if (!is_connected && ossm.g_ui.DisplayIsConnected())
-    {
-        LogDebug("Display Connected");
-        is_connected = true;
-    }
-    else if (is_connected && !ossm.g_ui.DisplayIsConnected())
-    {
-        LogDebug("Display Disconnected");
-        is_connected = false;
-    }
+    slvCtrlPlus.comm_loop();
 }
 
 ///////////////////////////////////////////
@@ -201,16 +178,10 @@ void estopResetTask(void *pvParameters)
     }
 }
 
-void wifiConnectionTask(void *pvParameters)
-{
-    ossm.wifiConnectOrHotspotNonBlocking();
-}
-
 // Task to read settings from server - only need to check this when in WiFi
 // control mode
 void getUserInputTask(void *pvParameters)
 {
-    bool wifiControlEnable = false;
     for (;;) // tasks should loop forever and not return - or will throw error in
              // OS
     {
@@ -220,36 +191,6 @@ void getUserInputTask(void *pvParameters)
         ossm.updateAnalogInputs();
 
         ossm.speedPercentage > 1 ? ossm.stepper.releaseEmergencyStop() : ossm.stepper.emergencyStop();
-
-        if (digitalRead(WIFI_CONTROL_TOGGLE_PIN) == HIGH) // TODO: check if wifi available and handle gracefully
-        {
-            if (wifiControlEnable == false)
-            {
-                // this is a transition to WiFi, we should tell the server it has
-                // control
-                wifiControlEnable = true;
-                if (WiFi.status() != WL_CONNECTED)
-                {
-                    delay(5000);
-                }
-                setInternetControl(wifiControlEnable);
-            }
-            getInternetSettings(); // we load ossm.speedPercentage and ossm.strokePercentage in
-                                   // this routine.
-        }
-        else
-        {
-            if (wifiControlEnable == true)
-            {
-                // this is a transition to local control, we should tell the server it
-                // cannot control
-                wifiControlEnable = false;
-                setInternetControl(wifiControlEnable);
-            }
-            // ossm.speedPercentage = ossm.speedPercentage;
-            // ossm.strokePercentage = getAnalogAverage(STROKE_POT_PIN, 50);
-            // ossm.strokePercentage = ossm.getEncoderPercentage();
-        }
 
         // We should scale these values with initialized settings not hard coded
         // values!
@@ -283,107 +224,3 @@ void motionCommandTask(void *pvParameters)
         }
     }
 }
-
-// float getAnalogVoltage(int pinNumber, int samples){
-
-// }
-
-bool setInternetControl(bool wifiControlEnable)
-{
-    // here we will SEND the WiFi control permission, and current speed and stroke
-    // to the remote server. The cloudfront redirect allows http connection with
-    // bubble backend hosted at app.researchanddesire.com
-
-    String serverNameBubble = "http://d2g4f7zewm360.cloudfront.net/ossm-set-control"; // live server
-    // String serverNameBubble =
-    // "http://d2oq8yqnezqh3r.cloudfront.net/ossm-set-control"; // this is
-    // version-test server
-
-    // Add values in the document to send to server
-    StaticJsonDocument<200> doc;
-    doc["ossmId"] = ossmId;
-    doc["wifiControlEnabled"] = wifiControlEnable;
-    doc["stroke"] = ossm.strokePercentage;
-    doc["speed"] = ossm.speedPercentage;
-    String requestBody;
-    serializeJson(doc, requestBody);
-
-    // Http request
-    HTTPClient http;
-    http.begin(serverNameBubble);
-    http.addHeader("Content-Type", "application/json");
-    // post and wait for response
-    int httpResponseCode = http.POST(requestBody);
-    String payload = "{}";
-    payload = http.getString();
-    http.end();
-
-    // deserialize JSON
-    StaticJsonDocument<200> bubbleResponse;
-    deserializeJson(bubbleResponse, payload);
-
-    // TODO: handle status response
-    // const char *status = bubbleResponse["status"]; // "success"
-
-    const char *wifiEnabledStr = (wifiControlEnable ? "true" : "false");
-    LogDebugFormatted("Setting Wifi Control: %s\n%s\n%s\n", wifiEnabledStr, requestBody.c_str(), payload.c_str());
-    LogDebugFormatted("HTTP Response code: %d\n", httpResponseCode);
-
-    return true;
-}
-
-bool getInternetSettings()
-{
-    // here we will request speed and stroke settings from the remote server. The
-    // cloudfront redirect allows http connection with bubble backend hosted at
-    // app.researchanddesire.com
-
-    String serverNameBubble = "http://d2g4f7zewm360.cloudfront.net/ossm-get-settings"; // live server
-    // String serverNameBubble =
-    // "http://d2oq8yqnezqh3r.cloudfront.net/ossm-get-settings"; // this is
-    // version-test
-    // server
-
-    // Add values in the document
-    StaticJsonDocument<200> doc;
-    doc["ossmId"] = ossmId;
-    String requestBody;
-    serializeJson(doc, requestBody);
-
-    // Http request
-    HTTPClient http;
-    http.begin(serverNameBubble);
-    http.addHeader("Content-Type", "application/json");
-    // post and wait for response
-    int httpResponseCode = http.POST(requestBody);
-    String payload = "{}";
-    payload = http.getString();
-    http.end();
-
-    // deserialize JSON
-    StaticJsonDocument<200> bubbleResponse;
-    deserializeJson(bubbleResponse, payload);
-
-    // TODO: handle status response
-    // const char *status = bubbleResponse["status"]; // "success"
-    ossm.strokePercentage = bubbleResponse["response"]["stroke"];
-    ossm.speedPercentage = bubbleResponse["response"]["speed"];
-
-    // debug info on the http payload
-    LogDebug(payload);
-    LogDebugFormatted("HTTP Response code: %d\n", httpResponseCode);
-
-    return true;
-}
-// void setLedRainbow(CRGB leds[])
-// {
-//     // int power = 250;
-
-//     for (int hueShift = 0; hueShift < 350; hueShift++)
-//     {
-//         int gHue = hueShift % 255;
-//         fill_rainbow(leds, NUM_LEDS, gHue, 25);
-//         FastLED.show();
-//         delay(4);
-//     }
-// }
