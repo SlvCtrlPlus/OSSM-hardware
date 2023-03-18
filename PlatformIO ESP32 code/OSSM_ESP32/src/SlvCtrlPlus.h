@@ -21,6 +21,7 @@ class SlvCtrlPlus
 
     void static commandUnrecognized(SerialCommands* sender, const char* cmd);
     void static commandIntroduce(SerialCommands* sender);
+    void static commandAttributes(SerialCommands* sender);
     void static commandStatus(SerialCommands* sender);
 };
 

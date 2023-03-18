@@ -77,6 +77,7 @@ void setup()
     attachInterrupt(digitalPinToInterrupt(ENCODER_SWITCH), encoderPushButton, RISING);
 
     ossm.setup();
+    slvCtrlPlus.comm_setup();
 
     delay(100);
 
@@ -115,8 +116,6 @@ void setup()
 
     delay(100);
     ossm.g_ui.UpdateMessage("OSSM Ready to Play");
-
-    slvCtrlPlus.comm_setup();
 } // Void Setup()
 
 ///////////////////////////////////////////

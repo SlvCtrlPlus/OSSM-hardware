@@ -36,6 +36,7 @@ void SlvCtrlPlus::comm_setup()
     // Add commands
     serialCommands.SetDefaultHandler(SlvCtrlPlus::commandUnrecognized);
     serialCommands.AddCommand(new SerialCommand("introduce", &SlvCtrlPlus::commandIntroduce));
+    serialCommands.AddCommand(new SerialCommand("attributes", &SlvCtrlPlus::commandAttributes));
     serialCommands.AddCommand(new SerialCommand("status", &SlvCtrlPlus::commandStatus));
 
     serialCommands.GetSerial()->write(0x07);
@@ -48,7 +49,11 @@ void SlvCtrlPlus::comm_loop()
 
 void SlvCtrlPlus::commandIntroduce(SerialCommands* sender)
 {
-    serial_printf(sender->GetSerial(), "%s,%d,%d\n", DEVICE_TYPE, FW_VERSION, PROTOCOL_VERSION);
+    serial_printf(sender->GetSerial(), "introduce;%s,%d,%d\n", DEVICE_TYPE, FW_VERSION, PROTOCOL_VERSION);
+}
+
+void SlvCtrlPlus::commandAttributes(SerialCommands* sender) {
+    serial_printf(sender->GetSerial(), "attributes;speed:ro[int],depth:ro[int],stroke:ro[int],sensation:ro[int]\n");
 }
 
 void SlvCtrlPlus::commandStatus(SerialCommands* sender) {
