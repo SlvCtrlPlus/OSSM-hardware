@@ -77,13 +77,12 @@ void setup()
     attachInterrupt(digitalPinToInterrupt(ENCODER_SWITCH), encoderPushButton, RISING);
 
     ossm.setup();
-    slvCtrlPlus.comm_setup();
 
     delay(100);
 
     ossm.findHome();
 
-    ossm.setRunMode();
+    slvCtrlPlus.setup();
 
     // Kick off the http and motion tasks - they begin executing as soon as they
     // are created here! Do not change the priority of the task, or do so with
@@ -148,7 +147,6 @@ void loop()
             break;
     }
     ossm.g_ui.UpdateScreen();
-    slvCtrlPlus.comm_loop();
 }
 
 ///////////////////////////////////////////
@@ -184,10 +182,14 @@ void getUserInputTask(void *pvParameters)
     for (;;) // tasks should loop forever and not return - or will throw error in
              // OS
     {
+        slvCtrlPlus.loop();
+
         // LogDebug("Speed: " + String(ossm.speedPercentage) + "\% Stroke: " + String(ossm.strokePercentage) +
         //          "\% Distance to target: " + String(ossm.stepper.getDistanceToTargetSigned()) + " steps?");
 
-        ossm.updateAnalogInputs();
+        if (SlvCtrlPlus::analogInput == true) {
+            ossm.updateAnalogInputs();
+        }
 
         ossm.speedPercentage > 1 ? ossm.stepper.releaseEmergencyStop() : ossm.stepper.emergencyStop();
 

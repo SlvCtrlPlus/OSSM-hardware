@@ -194,12 +194,14 @@ void OSSM::runStrokeEngine()
                 strokePattern = 0;
             }
 
+            modeChanged = true;
+        }
+
+        if (Stroker.getPattern() != strokePattern) {
             LogDebug(Stroker.getPatternName(strokePattern));
 
             Stroker.setPattern(strokePattern, false); // Pattern, index must be < Stroker.getNumberOfPattern()
             g_ui.UpdateMessage(Stroker.getPatternName(strokePattern));
-
-            modeChanged = true;
         }
 
         vTaskDelay(400);
