@@ -2,20 +2,15 @@
 #define UTILITIES_H
 
 #include <Arduino.h>
-#include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <ESP_FlexyStepper.h> // Current Motion Control
 #include <Encoder.h>          // Used for the Remote Encoder Input
-#include <HTTPClient.h>
-#include <HTTPUpdate.h>
 #include <StrokeEngine.h>
 
 #include "FastLED.h" // Used for the LED on the Reference Board (or any other pixel LEDS you may add)
 #include "OSSM_Config.h"
 #include "OSSM_PinDef.h"
 #include "OssmUi/OssmUi.h" // Separate file that helps contain the OLED screen functions
-#include "WiFi.h"
-#include "WiFiManager.h"
 
 #define BRIGHTNESS 170
 #define LED_TYPE WS2811
@@ -33,7 +28,6 @@ class OSSM
     /**
      * @brief Construct a new ossm object
      */
-    WiFiManager wm;
     ESP_FlexyStepper stepper;
     Encoder g_encoder;
     OssmUi g_ui;
@@ -95,16 +89,7 @@ class OSSM
     void setRunMode();
 
     // WiFi helper functions
-    void wifiAutoConnect();
-    [[noreturn]] void wifiConnectOrHotspotNonBlocking();
-    void enableWifiControl();
-    bool setInternetControl(bool setWifiControl);
-    bool getInternetSettings();
-
-    void updatePrompt();
-    void updateFirmware();
-    bool checkForUpdate();
-    bool checkConnection();
+    void l();
 
     // hardware helper functions
     void initializeStepperParameters();

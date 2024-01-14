@@ -4,6 +4,7 @@
 #include "OSSM_Config.h" // START HERE FOR Configuration
 #include "OSSM_PinDef.h" // This is where you set pins specific for your board
 #include "Utilities.h"   // Utility helper functions - wifi update and homing
+#include "SlvCtrlPlus.h"
 #include "boost/sml.hpp"
 #include "esp_log.h"
 #include "state/state.h"
@@ -44,7 +45,6 @@ IRAM_ATTR void encoderPushButton()
 // Create tasks for checking pot input or web server control, and task to handle
 // planning the motion profile (this task is high level only and does not pulse
 // the stepper!)
-TaskHandle_t wifiTask = nullptr;
 TaskHandle_t getInputTask = nullptr;
 TaskHandle_t motionTask = nullptr;
 TaskHandle_t estopTask = nullptr;
@@ -55,12 +55,12 @@ TaskHandle_t oledTask = nullptr;
 // void setLedRainbow(CRGB leds[]);
 void getUserInputTask(void *pvParameters);
 void motionCommandTask(void *pvParameters);
-void wifiConnectionTask(void *pvParameters);
 
 // create the OSSM hardware object
 OSSM ossm;
 StateLogger ossmLogger;
 OSSMState stateMachine{ossmLogger, ossm};
+SlvCtrlPlus slvCtrlPlus(&ossm);
 
 ///////////////////////////////////////////
 ////
@@ -70,7 +70,7 @@ OSSMState stateMachine{ossmLogger, ossm};
 
 void setup()
 {
-    Serial.begin(115200);
+    Serial.begin(9600);
 
     ossm.startLeds();
     LogDebug("\n Starting");
@@ -79,19 +79,11 @@ void setup()
 
     ossm.setup();
 
-    // start the WiFi connection task so we can be doing something while homing!
-    xTaskCreatePinnedToCore(wifiConnectionTask,   /* Task function. */
-                            "wifiConnectionTask", /* name of task. */
-                            10000,                /* Stack size of task */
-                            nullptr,              /* parameter of the task */
-                            1,                    /* priority of the task */
-                            &wifiTask,            /* Task handle to keep track of created task */
-                            0);                   /* pin task to core 0 */
     delay(100);
 
     ossm.findHome();
 
-    ossm.setRunMode();
+    slvCtrlPlus.setup();
 
     // Kick off the http and motion tasks - they begin executing as soon as they
     // are created here! Do not change the priority of the task, or do so with
@@ -156,11 +148,6 @@ void loop()
 ////
 ///////////////////////////////////////////
 
-void wifiConnectionTask(void *pvParameters)
-{
-    ossm.wifiConnectOrHotspotNonBlocking();
-}
-
 // Task to read settings from server - only need to check this when in WiFi
 // control mode
 void getUserInputTask(void *pvParameters)
@@ -171,25 +158,16 @@ void getUserInputTask(void *pvParameters)
     for (;;) // tasks should loop forever and not return - or will throw error in
              // OS
     {
+        slvCtrlPlus.loop();
+
         // LogDebug("Speed: " + String(ossm.speedPercentage) + "\% Stroke: " + String(ossm.strokePercentage) +
         //          "\% Distance to target: " + String(ossm.stepper.getDistanceToTargetSigned()) + " steps?");
 
-        ossm.updateAnalogInputs();
+        if (SlvCtrlPlus::analogInput == true) {
+            ossm.updateAnalogInputs();
+        }
+
         ossm.handleStopCondition();
-
-        if (digitalRead(WIFI_CONTROL_TOGGLE_PIN) == HIGH) // TODO: check if wifi available and handle gracefully
-        {
-            ossm.enableWifiControl();
-        }
-        else
-        {
-            if (ossm.wifiControlActive == true)
-            {
-                // this is a transition to local control, we should tell the server it cannot control
-
-                ossm.setInternetControl(false);
-            }
-        }
 
         // We should scale these values with initialized settings not hard coded
         // values!
