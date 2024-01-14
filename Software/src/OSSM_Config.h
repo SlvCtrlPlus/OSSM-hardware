@@ -1,7 +1,7 @@
 #ifndef OSSM_CONFIG_H
 #define OSSM_CONFIG_H
 
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 #define LogDebug(...) Serial.println(__VA_ARGS__)
@@ -11,7 +11,7 @@
 #define LogDebugFormatted(...) ((void)0)
 #endif
 
-#define SW_VERSION "0.23"
+#define SW_VERSION "0.24-slvctrl"
 #define HW_VERSION 22 // divide by 10 for real hw version
 #define EEPROM_SIZE 200
 
