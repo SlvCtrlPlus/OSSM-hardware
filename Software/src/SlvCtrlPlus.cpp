@@ -136,7 +136,7 @@ void SlvCtrlPlus::commandSetSensation(SerialCommands* sender)
 
 void SlvCtrlPlus::commandSetPattern(SerialCommands* sender)
 {
-    commandSetGeneric<unsigned int>(sender, "pattern", ossm->strokePattern, 0, 100);
+    commandSetGeneric<unsigned int>(sender, "pattern", ossm->strokePattern, 0, ossm->strokePatternCount);
 }
 
 char* SlvCtrlPlus::commandGetArg(SerialCommands* sender, const char* attr)

@@ -62,8 +62,6 @@ class OSSM
     float lastLifeWriteMillis = 0;
     char Id[20];
 
-    bool wifiControlActive = false;
-
     float speedPercentage = 0;   // percentage 0-100
     float depthPercentage = 100; // percentage 0-100
     float strokePercentage = 10; // percentage 0-100
